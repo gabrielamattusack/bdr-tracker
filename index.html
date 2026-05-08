@@ -292,9 +292,8 @@ document.getElementById("btn-registrar").addEventListener("click",function(){
   document.getElementById("suc-bdr").textContent=selectedBDR;
   document.getElementById("suc-num").textContent=rawNum+(nomeL?" · "+nomeL:"");
   document.getElementById("btn-abrir-wa").href=lastWaUrl;
-  showScreen("s-sucesso");
-  try{var xhr=new XMLHttpRequest();xhr.open("POST",APPS_SCRIPT_URL,true);xhr.setRequestHeader("Content-Type","application/json");xhr.send(JSON.stringify(entry))}catch(e){}
-  setTimeout(function(){window.location.href=lastWaUrl},800);
+ try{var xhr=new XMLHttpRequest();xhr.open("POST",APPS_SCRIPT_URL,true);xhr.setRequestHeader("Content-Type","application/json");xhr.send(JSON.stringify(entry))}catch(e){}
+  window.location.href=lastWaUrl;
 });
 document.getElementById("btn-nova").addEventListener("click",function(){openRegistro(selectedBDR)});
 document.getElementById("btn-painel").addEventListener("click",function(){renderHoje();showScreen("s-main")});
