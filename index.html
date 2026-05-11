@@ -205,7 +205,8 @@ input::placeholder{color:#333348;font-family:'Inter',sans-serif;font-size:14px}
   <div class="success-title">Conversa registrada!</div>
   <div class="success-sub" id="suc-bdr"></div>
   <div class="success-num" id="suc-num"></div>
-  <div class="wa-box">O WhatsApp abre automaticamente.<br>Se não abrir, clique em <b>Abrir WhatsApp</b>.</div>
+  <div id="send-status" style="font-family:'JetBrains Mono',monospace;font-size:12px;margin-bottom:14px;color:#8888aa"></div>
+  <div class="wa-box">O WhatsApp abre automaticamente em nova aba.<br>Se não abrir, clique em <b>Abrir WhatsApp</b>.</div>
   <div class="success-btns">
     <a class="btn-sec wa" id="btn-abrir-wa" href="#" target="_blank">📱 Abrir WhatsApp</a>
     <button class="btn-sec primary" id="btn-nova">+ Nova conversa</button>
@@ -217,6 +218,7 @@ input::placeholder{color:#333348;font-family:'Inter',sans-serif;font-size:14px}
 var SHEETDB_URL="https://sheetdb.io/api/v1/2bvi3jjqoasuu";
 var BDRS=["João Igor","Maria Tereza","João Victor","Samuel","Victoria","Carol"];
 var STORAGE_KEY="bdr_v7";
+var PENDING_KEY="bdr_pending_v1";
 var selectedBDR=null,currentTab="hoje",viewMonth=new Date().getMonth(),viewYear=new Date().getFullYear(),lastWaUrl="";
 
 function getLogs(){try{var r=localStorage.getItem(STORAGE_KEY);return r?JSON.parse(r):[]}catch(e){return[]}}
@@ -224,48 +226,71 @@ function saveLogs(l){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(l))}cat
 function addLog(e){var l=getLogs();l.push(e);saveLogs(l)}
 function parseBRDate(s){if(!s)return 0;var m=String(s).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[,\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);if(!m)return 0;return new Date(+m[3],+m[2]-1,+m[1],+m[4],+m[5],+(m[6]||0)).getTime()}
 function dedupeKey(ts,bdr,num){return (ts||0)+"_"+(bdr||"")+"_"+(num||"")}
-function enviarParaSheet(entry){
-  var payload={data:{
-    "Data/Hora":new Date(entry.ts).toLocaleString("pt-BR"),
-    "Data":entry.date,
-    "BDR":entry.bdr,
-    "Número Lead":entry.numero,
-    "Nome Lead":entry.nomeL||"",
-    "Timestamp":String(entry.ts),
-    "Hora Servidor":new Date().toLocaleTimeString("pt-BR")
-  }};
-  var body=JSON.stringify(payload);
-  var sent=false;
-  // 1) sendBeacon — projetado para enviar durante navegação (essencial no celular ao abrir WhatsApp)
-  if(navigator.sendBeacon){
-    try{
-      var blob=new Blob([body],{type:"application/json"});
-      sent=navigator.sendBeacon(SHEETDB_URL,blob);
-    }catch(e){}
-  }
-  // 2) fetch com keepalive — backup, também sobrevive à navegação
+// Fila de pendências — se um envio falha (celular cortou, sem rede, CORS), entry fica aqui e é reenviada depois
+function getPending(){try{return JSON.parse(localStorage.getItem(PENDING_KEY)||"[]")}catch(e){return[]}}
+function savePending(p){try{localStorage.setItem(PENDING_KEY,JSON.stringify(p))}catch(e){}}
+function addPending(e){var p=getPending();p.push(e);savePending(p)}
+function removePending(e){var p=getPending().filter(function(x){return !(x.ts===e.ts&&x.bdr===e.bdr&&x.numero===e.numero)});savePending(p)}
+
+function buildSheetBody(entry){
+  // Form-encoded — Content-Type "simples" do CORS: SEM preflight, funciona em todos os celulares
+  var params=new URLSearchParams();
+  params.append("data[Data/Hora]",new Date(entry.ts).toLocaleString("pt-BR"));
+  params.append("data[Data]",entry.date);
+  params.append("data[BDR]",entry.bdr);
+  params.append("data[Número Lead]",entry.numero);
+  params.append("data[Nome Lead]",entry.nomeL||"");
+  params.append("data[Timestamp]",String(entry.ts));
+  params.append("data[Hora Servidor]",new Date().toLocaleTimeString("pt-BR"));
+  return params.toString();
+}
+
+function enviarParaSheet(entry,onResult){
+  var body=buildSheetBody(entry);
+  // fetch com keepalive: sobrevive à navegação E retorna status real
   if(window.fetch){
     try{
       fetch(SHEETDB_URL,{
         method:"POST",
-        headers:{"Content-Type":"application/json"},
+        headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
         body:body,
         keepalive:true,
         mode:"cors"
-      }).catch(function(){});
-      sent=true;
+      }).then(function(r){
+        if(r.ok){removePending(entry);if(onResult)onResult(true)}
+        else{if(onResult)onResult(false)}
+      }).catch(function(){
+        // fetch falhou — tenta sendBeacon como último recurso (fire-and-forget)
+        var ok=false;
+        if(navigator.sendBeacon){
+          try{
+            var blob=new Blob([body],{type:"application/x-www-form-urlencoded;charset=UTF-8"});
+            ok=navigator.sendBeacon(SHEETDB_URL,blob);
+          }catch(e){}
+        }
+        if(ok)removePending(entry);
+        if(onResult)onResult(ok);
+      });
+      return;
     }catch(e){}
   }
-  // 3) XHR como último recurso
-  if(!sent){
+  // Sem fetch: sendBeacon direto
+  if(navigator.sendBeacon){
     try{
-      var xhr=new XMLHttpRequest();
-      xhr.open("POST",SHEETDB_URL,true);
-      xhr.setRequestHeader("Content-Type","application/json");
-      xhr.send(body);
+      var blob=new Blob([body],{type:"application/x-www-form-urlencoded;charset=UTF-8"});
+      var ok=navigator.sendBeacon(SHEETDB_URL,blob);
+      if(ok)removePending(entry);
+      if(onResult)onResult(ok);
+      return;
     }catch(e){}
   }
-  return sent;
+  if(onResult)onResult(false);
+}
+
+function flushPending(){
+  var p=getPending();
+  if(p.length===0)return;
+  p.forEach(function(entry){enviarParaSheet(entry)});
 }
 function initials(n){return n.split(" ").slice(0,2).map(function(w){return w[0]}).join("").toUpperCase()}
 function today(){return new Date().toLocaleDateString("pt-BR")}
@@ -339,15 +364,30 @@ document.getElementById("btn-registrar").addEventListener("click",function(){
   var ts=Date.now();
   var entry={bdr:selectedBDR,numero:rawNum,nomeL:nomeL,ts:ts,date:today()};
   addLog(entry);
+  // Marca como pendente ANTES de tentar enviar — se falhar, será reenviado depois
+  addPending(entry);
   lastWaUrl="https://wa.me/55"+rawNum;
   document.getElementById("suc-bdr").textContent=selectedBDR;
   document.getElementById("suc-num").textContent=rawNum+(nomeL?" · "+nomeL:"");
-  document.getElementById("btn-abrir-wa").href=lastWaUrl;
-  // Envia ao SheetDB usando sendBeacon — funciona mesmo navegando para o WhatsApp no celular
-  enviarParaSheet(entry);
-  // Mostra tela de sucesso e abre o WhatsApp após pequeno delay (dá tempo do beacon sair da fila)
+  // Link do WhatsApp abre em NOVA aba/app — mantém a página atual viva para o fetch terminar
+  var btnWa=document.getElementById("btn-abrir-wa");
+  btnWa.href=lastWaUrl;
+  btnWa.setAttribute("target","_blank");
+  btnWa.setAttribute("rel","noopener");
+  // Indicador de status
+  var statusEl=document.getElementById("send-status");
+  if(statusEl){statusEl.textContent="⏳ Salvando na planilha…";statusEl.style.color="#8888aa"}
   showScreen("s-sucesso");
-  setTimeout(function(){window.location.href=lastWaUrl;},700);
+  enviarParaSheet(entry,function(ok){
+    if(statusEl){
+      if(ok){statusEl.textContent="✓ Salvo na planilha";statusEl.style.color="#25d366"}
+      else{statusEl.textContent="⚠ Salvo localmente — reenvia ao voltar";statusEl.style.color="#f5c842"}
+    }
+  });
+  // Abre WhatsApp em nova aba clicando o anchor (mesma stack do clique do usuário, não é popup)
+  setTimeout(function(){
+    try{btnWa.click()}catch(e){window.open(lastWaUrl,"_blank")}
+  },350);
 });
 
 document.getElementById("btn-nova").addEventListener("click",function(){openRegistro(selectedBDR)});
@@ -398,24 +438,34 @@ function sincronizar(cb){
 
 function refreshUI(){if(currentTab==="hoje")renderHoje();else renderMes();}
 
+// Ao carregar: tenta reenviar pendências e sincroniza
+flushPending();
 sincronizar(function(){renderHoje()});
+
 // Sync a cada 10s no painel principal
 setInterval(function(){
   if(document.getElementById("s-main").classList.contains("active")){
+    flushPending();
     sincronizar(refreshUI);
   }
 },10000);
-// Quando o usuário volta do WhatsApp (visibilidade) — sincroniza imediatamente
+
+// Quando o usuário volta do WhatsApp (visibilidade) — reenvia pendências E sincroniza
 document.addEventListener("visibilitychange",function(){
-  if(!document.hidden && document.getElementById("s-main").classList.contains("active")){
-    sincronizar(refreshUI);
+  if(!document.hidden){
+    flushPending();
+    if(document.getElementById("s-main").classList.contains("active")){
+      sincronizar(refreshUI);
+    }
   }
 });
 window.addEventListener("focus",function(){
+  flushPending();
   if(document.getElementById("s-main").classList.contains("active")){
     sincronizar(refreshUI);
   }
 });
+window.addEventListener("online",flushPending);
 </script>
 </body>
 </html>
