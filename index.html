@@ -215,6 +215,7 @@ input::placeholder{color:#333348;font-family:'Inter',sans-serif;font-size:14px}
 </div>
 <script>
 var APPS_SCRIPT_URL="https://script.google.com/macros/s/AKfycbxY21zjJIDr906EhRMb4bKEHmMc_A-Wo-YLsVemX3E8DUaq7-3DlWY60X9rDChrZs9F/exec";
+var SHEETDB_URL="https://sheetdb.io/api/v1/2bvi3jjqoasuu";
 var BDRS=["João Igor","Maria Tereza","João Victor","Samuel","Victoria","Carol"];
 var STORAGE_KEY="bdr_v6";
 var selectedBDR=null,currentTab="hoje",viewMonth=new Date().getMonth(),viewYear=new Date().getFullYear(),lastWaUrl="";
@@ -292,20 +293,18 @@ document.getElementById("btn-registrar").addEventListener("click",function(){
   document.getElementById("suc-bdr").textContent=selectedBDR;
   document.getElementById("suc-num").textContent=rawNum+(nomeL?" · "+nomeL:"");
   document.getElementById("btn-abrir-wa").href=lastWaUrl;
-var _waSent = false;
-  function _saveCallback(data){
-    if(!_waSent){ _waSent=true; window.location.href=lastWaUrl; }
-  }
-  function _jsonpCallback(data){
-    if(!_waSent){ _waSent=true; window.location.href=lastWaUrl; }
-  }
-  try{
-    var s=document.createElement("script");
-    s.src=APPS_SCRIPT_URL+"?action=save&callback=_saveCallback&ts="+entry.ts+"&date="+encodeURIComponent(entry.date)+"&bdr="+encodeURIComponent(entry.bdr)+"&numero="+encodeURIComponent(entry.numero)+"&nomeL="+encodeURIComponent(entry.nomeL||"")+"&t="+Date.now();
-    s.onerror=function(){if(!_waSent){_waSent=true;window.location.href=lastWaUrl;}};
-    document.head.appendChild(s);
-  }catch(e){window.location.href=lastWaUrl;}
-  setTimeout(function(){if(!_waSent){_waSent=true;window.location.href=lastWaUrl;}},4000);
+var xhr2=new XMLHttpRequest();
+  xhr2.open("POST",SHEETDB_URL,true);
+  xhr2.setRequestHeader("Content-Type","application/json");
+  xhr2.send(JSON.stringify({data:{
+    "Data/Hora": new Date(entry.ts).toLocaleString("pt-BR"),
+    "Data": entry.date,
+    "BDR": entry.bdr,
+    "Número Lead": entry.numero,
+    "Nome Lead": entry.nomeL||"",
+    "Hora Servidor": new Date().toLocaleTimeString("pt-BR")
+  }}));
+  setTimeout(function(){window.location.href=lastWaUrl;},1000);
 });
 document.getElementById("btn-nova").addEventListener("click",function(){openRegistro(selectedBDR)});
 document.getElementById("btn-painel").addEventListener("click",function(){renderHoje();showScreen("s-main")});
@@ -313,15 +312,39 @@ var _cb=null;
 function _jsonpCallback(json){
   try{if(json&&json.logs&&json.logs.length>0){var local=getLogs(),seen={};local.forEach(function(l){seen[l.ts+"_"+l.bdr]=true});json.logs.forEach(function(l){if(!seen[l.ts+"_"+l.bdr]){if(!l.date&&l.ts)l.date=new Date(l.ts).toLocaleDateString("pt-BR");local.push(l)}});local.sort(function(a,b){return a.ts-b.ts});saveLogs(local)}}catch(e){}
   if(_cb){_cb();_cb=null}
-}
 function sincronizar(cb){
-  _cb=cb;
-  var old=document.getElementById("_js");if(old)old.parentNode.removeChild(old);
-  var s=document.createElement("script");s.id="_js";
-  s.src=APPS_SCRIPT_URL+"?action=list&callback=_jsonpCallback&t="+Date.now();
-  s.onerror=function(){if(_cb){_cb();_cb=null}};
-  document.head.appendChild(s);
-  setTimeout(function(){if(_cb){_cb();_cb=null}},8000);
+  var xhr3=new XMLHttpRequest();
+  xhr3.open("GET",SHEETDB_URL,true);
+  xhr3.onreadystatechange=function(){
+    if(xhr3.readyState===4&&xhr3.status===200){
+      try{
+        var rows=JSON.parse(xhr3.responseText);
+        if(rows&&rows.length>0){
+          var local=getLogs(),seen={};
+          local.forEach(function(l){seen[l.ts+"_"+l.bdr]=true});
+          rows.forEach(function(r){
+            var ts=new Date(r["Data/Hora"]).getTime()||0;
+            var key=ts+"_"+r["BDR"];
+            if(!seen[key]&&r["BDR"]){
+              local.push({
+                ts:ts,
+                date:r["Data"]||"",
+                bdr:r["BDR"]||"",
+                numero:r["Número Lead"]||"",
+                nomeL:r["Nome Lead"]||""
+              });
+              seen[key]=true;
+            }
+          });
+          local.sort(function(a,b){return a.ts-b.ts});
+          saveLogs(local);
+        }
+      }catch(e){}
+      if(cb)cb();
+    }
+  };
+  xhr3.onerror=function(){if(cb)cb()};
+  xhr3.send();
 }
 sincronizar(function(){renderHoje()});
 setInterval(function(){if(document.getElementById("s-main").classList.contains("active")){sincronizar(function(){if(currentTab==="hoje")renderHoje();else renderMes()})}},60000);
