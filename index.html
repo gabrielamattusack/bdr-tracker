@@ -214,11 +214,11 @@ input::placeholder{color:#333348;font-family:'Inter',sans-serif;font-size:14px}
 </div>
 </div>
 <script>
-var APPS_SCRIPT_URL="https://script.google.com/macros/s/AKfycbxY21zjJIDr906EhRMb4bKEHmMc_A-Wo-YLsVemX3E8DUaq7-3DlWY60X9rDChrZs9F/exec";
 var SHEETDB_URL="https://sheetdb.io/api/v1/2bvi3jjqoasuu";
 var BDRS=["João Igor","Maria Tereza","João Victor","Samuel","Victoria","Carol"];
-var STORAGE_KEY="bdr_v6";
+var STORAGE_KEY="bdr_v7";
 var selectedBDR=null,currentTab="hoje",viewMonth=new Date().getMonth(),viewYear=new Date().getFullYear(),lastWaUrl="";
+
 function getLogs(){try{var r=localStorage.getItem(STORAGE_KEY);return r?JSON.parse(r):[]}catch(e){return[]}}
 function saveLogs(l){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(l))}catch(e){}}
 function addLog(e){var l=getLogs();l.push(e);saveLogs(l)}
@@ -232,6 +232,7 @@ function posClass(i){return i===0?"gold":i===1?"silver":i===2?"bronze":""}
 function monthLabel(m,y){return["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"][m]+" "+y}
 function showScreen(id){document.querySelectorAll(".screen").forEach(function(s){s.classList.remove("active")});document.getElementById(id).classList.add("active");window.scrollTo(0,0)}
 function switchTab(tab){currentTab=tab;document.getElementById("tab-hoje").className="tab-btn"+(tab==="hoje"?" active green":"");document.getElementById("tab-mes").className="tab-btn"+(tab==="mes"?" active blue":"");document.getElementById("view-hoje").style.display=tab==="hoje"?"block":"none";document.getElementById("view-mes").style.display=tab==="mes"?"block":"none";if(tab==="mes")renderMes()}
+
 function renderHoje(){
   var logs=getLogs(),t=today(),tl=logs.filter(function(l){return l.date===t});
   document.getElementById("date-tag").textContent=new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long"});
@@ -255,6 +256,7 @@ function renderHoje(){
   var logEl=document.getElementById("log-list");
   logEl.innerHTML=logs.length===0?'<div class="empty">Sem registros ainda.</div>':logs.slice().reverse().slice(0,20).map(function(l){return'<div class="log-item"><div class="log-av">'+initials(l.bdr)+'</div><div class="log-info"><div class="log-bdr">'+l.bdr+'</div><div class="log-num">'+l.numero+(l.nomeL?' · '+l.nomeL:'')+'</div></div><div class="log-time">'+fmtDT(l.ts)+'</div></div>'}).join("");
 }
+
 function renderMes(){
   var mk=viewMonth+"_"+viewYear;
   document.getElementById("month-name-label").textContent=monthLabel(viewMonth,viewYear);
@@ -277,10 +279,13 @@ function renderMes(){
   var dias=new Date(viewYear,viewMonth+1,0).getDate(),tbody=document.getElementById("tabela-mes-body");
   tbody.innerHTML=mL.length===0?'<tr><td colspan="5"><div class="empty">Sem dados.</div></td></tr>':counts.map(function(c,i){var pct=Math.round(c.count/maxC*100),med=(c.count/dias).toFixed(1);return'<tr><td><div class="mt-pos '+posClass(i)+'">'+(i+1)+'</div></td><td><div class="mt-av">'+initials(c.bdr)+'</div></td><td><div class="mt-name">'+c.bdr+'</div></td><td class="mt-bar-cell"><div class="mt-bar-wrap"><div class="mt-bar-fill" style="width:'+pct+'%"></div></div></td><td><div class="mt-count">'+c.count+'</div><div class="mt-media">'+med+'/dia</div></td></tr>'}).join("");
 }
+
 document.getElementById("btn-mes-prev").addEventListener("click",function(){viewMonth--;if(viewMonth<0){viewMonth=11;viewYear--}renderMes()});
 document.getElementById("btn-mes-next").addEventListener("click",function(){var now=new Date();if(viewYear<now.getFullYear()||(viewYear===now.getFullYear()&&viewMonth<now.getMonth())){viewMonth++;if(viewMonth>11){viewMonth=0;viewYear++}renderMes()}});
+
 function openRegistro(bdr){selectedBDR=bdr;document.getElementById("badge-hoje").textContent=countTodayFor(bdr)+" hoje";document.getElementById("chip-av").textContent=initials(bdr);document.getElementById("chip-name").textContent=bdr;document.getElementById("inp-num").value="";document.getElementById("inp-nome").value="";document.getElementById("inp-num").classList.remove("err");document.getElementById("err-num").classList.remove("show");showScreen("s-registro")}
 document.getElementById("btn-back").addEventListener("click",function(){renderHoje();showScreen("s-main")});
+
 document.getElementById("btn-registrar").addEventListener("click",function(){
   var rawNum=document.getElementById("inp-num").value.replace(/\D/g,"");
   if(rawNum.length<10||rawNum.length>13){document.getElementById("inp-num").classList.add("err");document.getElementById("err-num").classList.add("show");document.getElementById("inp-num").focus();return}
@@ -293,46 +298,44 @@ document.getElementById("btn-registrar").addEventListener("click",function(){
   document.getElementById("suc-bdr").textContent=selectedBDR;
   document.getElementById("suc-num").textContent=rawNum+(nomeL?" · "+nomeL:"");
   document.getElementById("btn-abrir-wa").href=lastWaUrl;
-var xhr2=new XMLHttpRequest();
-  xhr2.open("POST",SHEETDB_URL,true);
-  xhr2.setRequestHeader("Content-Type","application/json");
-  xhr2.send(JSON.stringify({data:{
-    "Data/Hora": new Date(entry.ts).toLocaleString("pt-BR"),
-    "Data": entry.date,
-    "BDR": entry.bdr,
-    "Número Lead": entry.numero,
-    "Nome Lead": entry.nomeL||"",
-    "Hora Servidor": new Date().toLocaleTimeString("pt-BR")
+  // Envia ao SheetDB e só abre WhatsApp após confirmação
+  var xhr=new XMLHttpRequest();
+  xhr.open("POST",SHEETDB_URL,true);
+  xhr.setRequestHeader("Content-Type","application/json");
+  xhr.onreadystatechange=function(){
+    if(xhr.readyState===4){window.location.href=lastWaUrl;}
+  };
+  xhr.onerror=function(){window.location.href=lastWaUrl;};
+  xhr.send(JSON.stringify({data:{
+    "Data/Hora":new Date(ts).toLocaleString("pt-BR"),
+    "Data":entry.date,
+    "BDR":entry.bdr,
+    "Número Lead":entry.numero,
+    "Nome Lead":entry.nomeL||"",
+    "Hora Servidor":new Date().toLocaleTimeString("pt-BR")
   }}));
-  setTimeout(function(){window.location.href=lastWaUrl;},1000);
+  setTimeout(function(){window.location.href=lastWaUrl;},3000);
 });
+
 document.getElementById("btn-nova").addEventListener("click",function(){openRegistro(selectedBDR)});
 document.getElementById("btn-painel").addEventListener("click",function(){renderHoje();showScreen("s-main")});
-var _cb=null;
-function _jsonpCallback(json){
-  try{if(json&&json.logs&&json.logs.length>0){var local=getLogs(),seen={};local.forEach(function(l){seen[l.ts+"_"+l.bdr]=true});json.logs.forEach(function(l){if(!seen[l.ts+"_"+l.bdr]){if(!l.date&&l.ts)l.date=new Date(l.ts).toLocaleDateString("pt-BR");local.push(l)}});local.sort(function(a,b){return a.ts-b.ts});saveLogs(local)}}catch(e){}
-  if(_cb){_cb();_cb=null}
+
 function sincronizar(cb){
-  var xhr3=new XMLHttpRequest();
-  xhr3.open("GET",SHEETDB_URL,true);
-  xhr3.onreadystatechange=function(){
-    if(xhr3.readyState===4&&xhr3.status===200){
+  var xhr=new XMLHttpRequest();
+  xhr.open("GET",SHEETDB_URL,true);
+  xhr.onreadystatechange=function(){
+    if(xhr.readyState===4&&xhr.status===200){
       try{
-        var rows=JSON.parse(xhr3.responseText);
+        var rows=JSON.parse(xhr.responseText);
         if(rows&&rows.length>0){
           var local=getLogs(),seen={};
           local.forEach(function(l){seen[l.ts+"_"+l.bdr]=true});
           rows.forEach(function(r){
+            if(!r["BDR"])return;
             var ts=new Date(r["Data/Hora"]).getTime()||0;
             var key=ts+"_"+r["BDR"];
-            if(!seen[key]&&r["BDR"]){
-              local.push({
-                ts:ts,
-                date:r["Data"]||"",
-                bdr:r["BDR"]||"",
-                numero:r["Número Lead"]||"",
-                nomeL:r["Nome Lead"]||""
-              });
+            if(!seen[key]){
+              local.push({ts:ts,date:r["Data"]||"",bdr:r["BDR"],numero:r["Número Lead"]||"",nomeL:r["Nome Lead"]||""});
               seen[key]=true;
             }
           });
@@ -343,11 +346,16 @@ function sincronizar(cb){
       if(cb)cb();
     }
   };
-  xhr3.onerror=function(){if(cb)cb()};
-  xhr3.send();
+  xhr.onerror=function(){if(cb)cb()};
+  xhr.send();
 }
+
 sincronizar(function(){renderHoje()});
-setInterval(function(){if(document.getElementById("s-main").classList.contains("active")){sincronizar(function(){if(currentTab==="hoje")renderHoje();else renderMes()})}},60000);
+setInterval(function(){
+  if(document.getElementById("s-main").classList.contains("active")){
+    sincronizar(function(){if(currentTab==="hoje")renderHoje();else renderMes()});
+  }
+},30000);
 </script>
 </body>
 </html>
