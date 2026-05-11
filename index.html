@@ -297,7 +297,7 @@ try{
     s.src=APPS_SCRIPT_URL+"?action=save&callback=_jsonpCallback&ts="+entry.ts+"&date="+encodeURIComponent(entry.date)+"&bdr="+encodeURIComponent(entry.bdr)+"&numero="+encodeURIComponent(entry.numero)+"&nomeL="+encodeURIComponent(entry.nomeL||"")+"&t="+Date.now();
     document.head.appendChild(s);
   }catch(e){}
-  window.location.href=lastWaUrl;
+  setTimeout(function(){window.location.href=lastWaUrl;},1500);
 });
 document.getElementById("btn-nova").addEventListener("click",function(){openRegistro(selectedBDR)});
 document.getElementById("btn-painel").addEventListener("click",function(){renderHoje();showScreen("s-main")});
