@@ -31,6 +31,21 @@ body{font-family:'Inter',sans-serif;background:#0d0d14;color:#f0f0f5;min-height:
 @media(min-width:768px){.bdr-grid{grid-template-columns:repeat(3,1fr);gap:14px}}
 .bdr-card{background:#13131f;border:1.5px solid rgba(255,255,255,0.08);border-radius:18px;padding:16px 14px 14px;box-shadow:0 2px 16px rgba(0,0,0,0.25)}
 .bdr-card.leader{border-color:rgba(245,200,66,0.4);background:linear-gradient(145deg,#1a1a10,#13131f)}
+.bdr-card.tier-red{border-color:rgba(255,77,109,0.45);background:linear-gradient(145deg,#1f1014,#13131f)}
+.bdr-card.tier-red .bdr-avatar{background:rgba(255,77,109,0.1);color:#ff4d6d;border-color:rgba(255,77,109,0.25)}
+.bdr-card.tier-red .bdr-count-big{color:#ff4d6d}
+.bdr-card.tier-red .bar-fill{background:#ff4d6d}
+.bdr-card.tier-red .btn-conversa{background:rgba(255,77,109,0.1);border-color:rgba(255,77,109,0.25);color:#ff4d6d}
+.bdr-card.tier-yellow{border-color:rgba(245,200,66,0.45);background:linear-gradient(145deg,#1a1a10,#13131f)}
+.bdr-card.tier-yellow .bdr-avatar{background:rgba(245,200,66,0.1);color:#f5c842;border-color:rgba(245,200,66,0.25)}
+.bdr-card.tier-yellow .bdr-count-big{color:#f5c842}
+.bdr-card.tier-yellow .bar-fill{background:#f5c842}
+.bdr-card.tier-yellow .btn-conversa{background:rgba(245,200,66,0.1);border-color:rgba(245,200,66,0.25);color:#f5c842}
+.bdr-card.tier-green{border-color:rgba(37,211,102,0.45);background:linear-gradient(145deg,#0e1f15,#13131f)}
+.bdr-card.tier-green .bdr-avatar{background:rgba(37,211,102,0.1);color:#25d366;border-color:rgba(37,211,102,0.25)}
+.bdr-card.tier-green .bdr-count-big{color:#25d366}
+.bdr-card.tier-green .bar-fill{background:#25d366}
+.bdr-card.tier-green .btn-conversa{background:rgba(37,211,102,0.1);border-color:rgba(37,211,102,0.25);color:#25d366}
 .bdr-card-top{display:flex;align-items:center;gap:10px;margin-bottom:12px}
 .bdr-avatar{width:38px;height:38px;border-radius:50%;background:#1c1c2e;border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#8888aa;flex-shrink:0}
 .bdr-card.leader .bdr-avatar{background:rgba(245,200,66,0.1);color:#f5c842;border-color:rgba(245,200,66,0.25)}
@@ -335,6 +350,7 @@ function flushPending(){
 }
 function initials(n){return n.split(" ").slice(0,2).map(function(w){return w[0]}).join("").toUpperCase()}
 function maskNumero(n){var s=String(n||"");if(s.length<=4)return s;return s.substring(0,4)+"*".repeat(s.length-4)}
+function tierClass(count){if(count>=50)return"tier-green";if(count>=30)return"tier-yellow";return"tier-red"}
 function today(){return new Date().toLocaleDateString("pt-BR")}
 function fmtTime(ts){return new Date(ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
 function fmtDT(ts){var d=new Date(ts);if(d.toLocaleDateString("pt-BR")===today())return"hoje "+fmtTime(ts);return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" "+fmtTime(ts)}
@@ -356,8 +372,8 @@ function renderHoje(){
   var leaderVal=Math.max.apply(null,counts.map(function(c){return c.hoje}));
   var grid=document.getElementById("bdr-grid-hoje");grid.innerHTML="";
   counts.forEach(function(c){
-    var isL=c.hoje>0&&c.hoje===leaderVal,pct=Math.round(c.hoje/maxH*100);
-    var card=document.createElement("div");card.className="bdr-card"+(isL?" leader":"");
+    var tier=tierClass(c.hoje),pct=Math.round(c.hoje/maxH*100);
+    var card=document.createElement("div");card.className="bdr-card "+tier;
     card.innerHTML='<div class="bdr-card-top"><div class="bdr-avatar">'+initials(c.bdr)+'</div><div class="bdr-meta"><div class="bdr-name">'+c.bdr+'</div><div class="bdr-sub">'+c.total+' total</div></div></div><div class="bdr-count-big">'+c.hoje+'</div><div class="bdr-count-sub">conversas hoje</div><div class="bar-wrap"><div class="bar-fill" style="width:'+pct+'%"></div></div><button class="btn-conversa">+ Iniciar conversa</button>';
     card.querySelector(".btn-conversa").addEventListener("click",(function(b){return function(e){e.stopPropagation();openRegistro(b)}})(c.bdr));
     grid.appendChild(card);
