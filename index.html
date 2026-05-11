@@ -130,6 +130,20 @@ input::placeholder{color:#333348;font-family:'Inter',sans-serif;font-size:14px}
 .empty{text-align:center;padding:28px 0;color:#555570;font-size:13px;line-height:1.7}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:#1c1c2e;border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:12px 22px;font-size:13px;color:#f0f0f5;transition:transform .3s ease;z-index:9999;pointer-events:none;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,0.4)}
 .toast.show{transform:translateX(-50%) translateY(0)}
+.range-controls{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.range-btn{padding:8px 14px;background:#13131f;border:1px solid rgba(255,255,255,0.08);border-radius:10px;color:#8888aa;font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s}
+.range-btn.active{background:#1e1e30;color:#4f8ef7;border-color:rgba(79,142,247,0.4)}
+.range-input{width:90px;padding:8px 12px;background:#0d0d14;border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;color:#f0f0f5;font-family:'JetBrains Mono',monospace;font-size:13px;outline:none}
+.range-input:focus{border-color:#4f8ef7}
+.day-row{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.05)}
+.day-row:last-child{border-bottom:none}
+.day-info{flex-shrink:0;min-width:78px}
+.day-date{font-size:13px;font-weight:600;color:#f0f0f5;font-family:'JetBrains Mono',monospace}
+.day-weekday{font-size:10px;color:#555570;text-transform:uppercase;margin-top:2px;letter-spacing:.05em}
+.day-bdrs{flex:1;display:flex;flex-wrap:wrap;gap:5px;min-width:0}
+.day-bdr-chip{font-size:10px;color:#8888aa;background:rgba(79,142,247,0.08);border:1px solid rgba(79,142,247,0.12);padding:3px 8px;border-radius:8px;white-space:nowrap;font-family:'JetBrains Mono',monospace}
+.day-bdr-chip b{color:#4f8ef7;margin-left:3px}
+.day-total{font-size:18px;font-weight:700;font-family:'JetBrains Mono',monospace;color:#4f8ef7;flex-shrink:0;min-width:38px;text-align:right}
 </style>
 </head>
 <body>
@@ -171,6 +185,16 @@ input::placeholder{color:#333348;font-family:'Inter',sans-serif;font-size:14px}
     </div>
     <div class="section-label">Produção por BDR</div>
     <div class="bdr-grid" id="bdr-grid-mes"></div>
+    <div class="section-label" style="margin-top:24px">Resultados por dia</div>
+    <div class="panel-box" style="margin-bottom:24px">
+      <div class="range-controls">
+        <button class="range-btn active" data-days="7">7 dias</button>
+        <button class="range-btn" data-days="15">15 dias</button>
+        <button class="range-btn" data-days="30">30 dias</button>
+        <input type="number" id="range-custom" class="range-input" placeholder="custom" min="1" max="365">
+      </div>
+      <div id="day-breakdown"></div>
+    </div>
     <div class="bottom-grid">
       <div class="panel-box"><div class="panel-box-title">Ranking do mês</div><div id="ranking-mes"></div></div>
       <div class="panel-box"><div class="panel-box-title">Comparativo detalhado</div>
@@ -310,6 +334,7 @@ function flushPending(){
   p.forEach(function(entry){enviarParaSheet(entry)});
 }
 function initials(n){return n.split(" ").slice(0,2).map(function(w){return w[0]}).join("").toUpperCase()}
+function maskNumero(n){var s=String(n||"");if(s.length<=4)return s;return s.substring(0,4)+"*".repeat(s.length-4)}
 function today(){return new Date().toLocaleDateString("pt-BR")}
 function fmtTime(ts){return new Date(ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
 function fmtDT(ts){var d=new Date(ts);if(d.toLocaleDateString("pt-BR")===today())return"hoje "+fmtTime(ts);return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})+" "+fmtTime(ts)}
@@ -341,7 +366,7 @@ function renderHoje(){
   var rkEl=document.getElementById("ranking-hoje");
   rkEl.innerHTML=tl.length===0?'<div class="empty">Nenhuma conversa hoje ainda.</div>':sorted.map(function(c,i){var pct=Math.round(c.hoje/maxH*100);return'<div class="rank-item"><div class="rank-pos '+posClass(i)+'">'+(i+1)+'</div><div class="rank-av">'+initials(c.bdr)+'</div><div class="rank-info"><div class="rank-name">'+c.bdr+'</div><div class="rank-bar-wrap"><div class="rank-bar-inner" style="width:'+pct+'%;background:#25d366"></div></div></div><div class="rank-score"><div class="rank-big">'+c.hoje+'</div><div class="rank-sub">'+c.total+' total</div></div></div>'}).join("");
   var logEl=document.getElementById("log-list");
-  logEl.innerHTML=logs.length===0?'<div class="empty">Sem registros ainda.</div>':logs.slice().reverse().slice(0,20).map(function(l){return'<div class="log-item"><div class="log-av">'+initials(l.bdr)+'</div><div class="log-info"><div class="log-bdr">'+l.bdr+'</div><div class="log-num">'+l.numero+(l.nomeL?' · '+l.nomeL:'')+'</div></div><div class="log-time">'+fmtDT(l.ts)+'</div></div>'}).join("");
+  logEl.innerHTML=logs.length===0?'<div class="empty">Sem registros ainda.</div>':logs.slice().reverse().slice(0,12).map(function(l){return'<div class="log-item"><div class="log-av">'+initials(l.bdr)+'</div><div class="log-info"><div class="log-bdr">'+l.bdr+'</div><div class="log-num">'+maskNumero(l.numero)+(l.nomeL?' · '+l.nomeL:'')+'</div></div><div class="log-time">'+fmtDT(l.ts)+'</div></div>'}).join("");
 }
 
 function renderMes(){
@@ -365,10 +390,69 @@ function renderMes(){
   rkM.innerHTML=mL.length===0?'<div class="empty">Nenhuma conversa neste mês.</div>':counts.map(function(c,i){var pct=Math.round(c.count/maxC*100);return'<div class="rank-item"><div class="rank-pos '+posClass(i)+'">'+(i+1)+'</div><div class="rank-av">'+initials(c.bdr)+'</div><div class="rank-info"><div class="rank-name">'+c.bdr+'</div><div class="rank-bar-wrap"><div class="rank-bar-inner" style="width:'+pct+'%;background:#4f8ef7"></div></div></div><div class="rank-score"><div class="rank-big" style="color:#4f8ef7">'+c.count+'</div><div class="rank-sub">conversas</div></div></div>'}).join("");
   var dias=new Date(viewYear,viewMonth+1,0).getDate(),tbody=document.getElementById("tabela-mes-body");
   tbody.innerHTML=mL.length===0?'<tr><td colspan="5"><div class="empty">Sem dados.</div></td></tr>':counts.map(function(c,i){var pct=Math.round(c.count/maxC*100),med=(c.count/dias).toFixed(1);return'<tr><td><div class="mt-pos '+posClass(i)+'">'+(i+1)+'</div></td><td><div class="mt-av">'+initials(c.bdr)+'</div></td><td><div class="mt-name">'+c.bdr+'</div></td><td class="mt-bar-cell"><div class="mt-bar-wrap"><div class="mt-bar-fill" style="width:'+pct+'%"></div></div></td><td><div class="mt-count">'+c.count+'</div><div class="mt-media">'+med+'/dia</div></td></tr>'}).join("");
+  renderDayBreakdown();
 }
 
 document.getElementById("btn-mes-prev").addEventListener("click",function(){viewMonth--;if(viewMonth<0){viewMonth=11;viewYear--}renderMes()});
 document.getElementById("btn-mes-next").addEventListener("click",function(){var now=new Date();if(viewYear<now.getFullYear()||(viewYear===now.getFullYear()&&viewMonth<now.getMonth())){viewMonth++;if(viewMonth>11){viewMonth=0;viewYear++}renderMes()}});
+
+// === Resultados por dia ===
+var selectedRangeDays=7;
+function renderDayBreakdown(){
+  var logs=getLogs();
+  var hoje=new Date();hoje.setHours(0,0,0,0);
+  var cutoff=new Date(hoje);cutoff.setDate(cutoff.getDate()-selectedRangeDays+1);
+  var fim=new Date(hoje);fim.setDate(fim.getDate()+1); // inclui dia de hoje todo
+  // Agrupa por dia (DD/MM/YYYY)
+  var byDay={};
+  logs.forEach(function(l){
+    if(!l.ts)return;
+    var d=new Date(l.ts);
+    if(d<cutoff||d>=fim)return;
+    var key=d.toLocaleDateString("pt-BR");
+    if(!byDay[key]){
+      var dRef=new Date(d);dRef.setHours(0,0,0,0);
+      byDay[key]={ts:dRef.getTime(),total:0,byBdr:{}};
+    }
+    byDay[key].total++;
+    byDay[key].byBdr[l.bdr]=(byDay[key].byBdr[l.bdr]||0)+1;
+  });
+  var entries=Object.keys(byDay).map(function(k){return{date:k,ts:byDay[k].ts,total:byDay[k].total,byBdr:byDay[k].byBdr}})
+    .sort(function(a,b){return b.ts-a.ts});
+  var el=document.getElementById("day-breakdown");
+  if(!el)return;
+  if(entries.length===0){
+    el.innerHTML='<div class="empty">Sem conversas no período selecionado.</div>';
+    return;
+  }
+  el.innerHTML=entries.map(function(e){
+    var dt=new Date(e.ts);
+    var weekday=dt.toLocaleDateString("pt-BR",{weekday:"short"}).replace(".","").replace("-feira","");
+    var bdrs=Object.keys(e.byBdr).sort(function(a,b){return e.byBdr[b]-e.byBdr[a]});
+    var chips=bdrs.map(function(b){return '<span class="day-bdr-chip">'+b.split(" ")[0]+'<b>'+e.byBdr[b]+'</b></span>'}).join("");
+    return '<div class="day-row">'+
+      '<div class="day-info"><div class="day-date">'+e.date+'</div><div class="day-weekday">'+weekday+'</div></div>'+
+      '<div class="day-bdrs">'+chips+'</div>'+
+      '<div class="day-total">'+e.total+'</div>'+
+      '</div>';
+  }).join("");
+}
+function setRange(days,sourceBtn){
+  selectedRangeDays=Math.max(1,Math.min(365,parseInt(days,10)||7));
+  document.querySelectorAll(".range-btn").forEach(function(b){b.classList.remove("active")});
+  if(sourceBtn)sourceBtn.classList.add("active");
+  renderDayBreakdown();
+}
+document.querySelectorAll(".range-btn").forEach(function(btn){
+  btn.addEventListener("click",function(){
+    document.getElementById("range-custom").value="";
+    setRange(btn.getAttribute("data-days"),btn);
+  });
+});
+document.getElementById("range-custom").addEventListener("input",function(){
+  var v=parseInt(this.value,10);
+  if(v&&v>0){setRange(v,null);}
+});
 
 function openRegistro(bdr){selectedBDR=bdr;document.getElementById("badge-hoje").textContent=countTodayFor(bdr)+" hoje";document.getElementById("chip-av").textContent=initials(bdr);document.getElementById("chip-name").textContent=bdr;document.getElementById("inp-num").value="";document.getElementById("inp-nome").value="";document.getElementById("inp-num").classList.remove("err");document.getElementById("err-num").classList.remove("show");showScreen("s-registro")}
 document.getElementById("btn-back").addEventListener("click",function(){renderHoje();showScreen("s-main")});
