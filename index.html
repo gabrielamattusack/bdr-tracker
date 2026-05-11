@@ -222,6 +222,51 @@ var selectedBDR=null,currentTab="hoje",viewMonth=new Date().getMonth(),viewYear=
 function getLogs(){try{var r=localStorage.getItem(STORAGE_KEY);return r?JSON.parse(r):[]}catch(e){return[]}}
 function saveLogs(l){try{localStorage.setItem(STORAGE_KEY,JSON.stringify(l))}catch(e){}}
 function addLog(e){var l=getLogs();l.push(e);saveLogs(l)}
+function parseBRDate(s){if(!s)return 0;var m=String(s).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})[,\sT]+(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);if(!m)return 0;return new Date(+m[3],+m[2]-1,+m[1],+m[4],+m[5],+(m[6]||0)).getTime()}
+function dedupeKey(ts,bdr,num){return (ts||0)+"_"+(bdr||"")+"_"+(num||"")}
+function enviarParaSheet(entry){
+  var payload={data:{
+    "Data/Hora":new Date(entry.ts).toLocaleString("pt-BR"),
+    "Data":entry.date,
+    "BDR":entry.bdr,
+    "Número Lead":entry.numero,
+    "Nome Lead":entry.nomeL||"",
+    "Timestamp":String(entry.ts),
+    "Hora Servidor":new Date().toLocaleTimeString("pt-BR")
+  }};
+  var body=JSON.stringify(payload);
+  var sent=false;
+  // 1) sendBeacon — projetado para enviar durante navegação (essencial no celular ao abrir WhatsApp)
+  if(navigator.sendBeacon){
+    try{
+      var blob=new Blob([body],{type:"application/json"});
+      sent=navigator.sendBeacon(SHEETDB_URL,blob);
+    }catch(e){}
+  }
+  // 2) fetch com keepalive — backup, também sobrevive à navegação
+  if(window.fetch){
+    try{
+      fetch(SHEETDB_URL,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:body,
+        keepalive:true,
+        mode:"cors"
+      }).catch(function(){});
+      sent=true;
+    }catch(e){}
+  }
+  // 3) XHR como último recurso
+  if(!sent){
+    try{
+      var xhr=new XMLHttpRequest();
+      xhr.open("POST",SHEETDB_URL,true);
+      xhr.setRequestHeader("Content-Type","application/json");
+      xhr.send(body);
+    }catch(e){}
+  }
+  return sent;
+}
 function initials(n){return n.split(" ").slice(0,2).map(function(w){return w[0]}).join("").toUpperCase()}
 function today(){return new Date().toLocaleDateString("pt-BR")}
 function fmtTime(ts){return new Date(ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})}
@@ -298,23 +343,11 @@ document.getElementById("btn-registrar").addEventListener("click",function(){
   document.getElementById("suc-bdr").textContent=selectedBDR;
   document.getElementById("suc-num").textContent=rawNum+(nomeL?" · "+nomeL:"");
   document.getElementById("btn-abrir-wa").href=lastWaUrl;
-  // Envia ao SheetDB e só abre WhatsApp após confirmação
-  var xhr=new XMLHttpRequest();
-  xhr.open("POST",SHEETDB_URL,true);
-  xhr.setRequestHeader("Content-Type","application/json");
-  xhr.onreadystatechange=function(){
-    if(xhr.readyState===4){window.location.href=lastWaUrl;}
-  };
-  xhr.onerror=function(){window.location.href=lastWaUrl;};
-  xhr.send(JSON.stringify({data:{
-    "Data/Hora":new Date(ts).toLocaleString("pt-BR"),
-    "Data":entry.date,
-    "BDR":entry.bdr,
-    "Número Lead":entry.numero,
-    "Nome Lead":entry.nomeL||"",
-    "Hora Servidor":new Date().toLocaleTimeString("pt-BR")
-  }}));
-  setTimeout(function(){window.location.href=lastWaUrl;},3000);
+  // Envia ao SheetDB usando sendBeacon — funciona mesmo navegando para o WhatsApp no celular
+  enviarParaSheet(entry);
+  // Mostra tela de sucesso e abre o WhatsApp após pequeno delay (dá tempo do beacon sair da fila)
+  showScreen("s-sucesso");
+  setTimeout(function(){window.location.href=lastWaUrl;},700);
 });
 
 document.getElementById("btn-nova").addEventListener("click",function(){openRegistro(selectedBDR)});
@@ -322,20 +355,33 @@ document.getElementById("btn-painel").addEventListener("click",function(){render
 
 function sincronizar(cb){
   var xhr=new XMLHttpRequest();
-  xhr.open("GET",SHEETDB_URL,true);
+  xhr.open("GET",SHEETDB_URL+"?cb="+Date.now(),true); // cache-buster
   xhr.onreadystatechange=function(){
     if(xhr.readyState===4&&xhr.status===200){
       try{
         var rows=JSON.parse(xhr.responseText);
         if(rows&&rows.length>0){
           var local=getLogs(),seen={};
-          local.forEach(function(l){seen[l.ts+"_"+l.bdr]=true});
+          // Indexa o que já está localmente por (ts,bdr,numero) E também por (bdr,numero) caso ts esteja zerado
+          local.forEach(function(l){
+            seen[dedupeKey(l.ts,l.bdr,l.numero)]=true;
+          });
           rows.forEach(function(r){
             if(!r["BDR"])return;
-            var ts=new Date(r["Data/Hora"]).getTime()||0;
-            var key=ts+"_"+r["BDR"];
+            // Prioridade: coluna Timestamp (raw ms) → parse pt-BR de Data/Hora → 0
+            var ts=parseInt(r["Timestamp"],10);
+            if(!ts||isNaN(ts)){ts=parseBRDate(r["Data/Hora"]);}
+            if(!ts){ts=0;}
+            var numero=r["Número Lead"]||r["Numero Lead"]||"";
+            var key=dedupeKey(ts,r["BDR"],numero);
             if(!seen[key]){
-              local.push({ts:ts,date:r["Data"]||"",bdr:r["BDR"],numero:r["Número Lead"]||"",nomeL:r["Nome Lead"]||""});
+              local.push({
+                ts:ts,
+                date:r["Data"]||(ts?new Date(ts).toLocaleDateString("pt-BR"):""),
+                bdr:r["BDR"],
+                numero:numero,
+                nomeL:r["Nome Lead"]||""
+              });
               seen[key]=true;
             }
           });
@@ -350,12 +396,26 @@ function sincronizar(cb){
   xhr.send();
 }
 
+function refreshUI(){if(currentTab==="hoje")renderHoje();else renderMes();}
+
 sincronizar(function(){renderHoje()});
+// Sync a cada 10s no painel principal
 setInterval(function(){
   if(document.getElementById("s-main").classList.contains("active")){
-    sincronizar(function(){if(currentTab==="hoje")renderHoje();else renderMes()});
+    sincronizar(refreshUI);
   }
-},30000);
+},10000);
+// Quando o usuário volta do WhatsApp (visibilidade) — sincroniza imediatamente
+document.addEventListener("visibilitychange",function(){
+  if(!document.hidden && document.getElementById("s-main").classList.contains("active")){
+    sincronizar(refreshUI);
+  }
+});
+window.addEventListener("focus",function(){
+  if(document.getElementById("s-main").classList.contains("active")){
+    sincronizar(refreshUI);
+  }
+});
 </script>
 </body>
 </html>
