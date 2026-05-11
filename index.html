@@ -215,7 +215,8 @@ input::placeholder{color:#333348;font-family:'Inter',sans-serif;font-size:14px}
 </div>
 </div>
 <script>
-var SHEETDB_URL="https://sheetdb.io/api/v1/2bvi3jjqoasuu";
+// >>> COLE AQUI A URL DO APPS SCRIPT DEPLOYADO (termina em /exec) <<<
+var APPS_SCRIPT_URL="COLE_AQUI_A_URL_DO_APPS_SCRIPT";
 var BDRS=["João Igor","Maria Tereza","João Victor","Samuel","Victoria","Carol"];
 var STORAGE_KEY="bdr_v7";
 var PENDING_KEY="bdr_pending_v1";
@@ -232,59 +233,75 @@ function savePending(p){try{localStorage.setItem(PENDING_KEY,JSON.stringify(p))}
 function addPending(e){var p=getPending();p.push(e);savePending(p)}
 function removePending(e){var p=getPending().filter(function(x){return !(x.ts===e.ts&&x.bdr===e.bdr&&x.numero===e.numero)});savePending(p)}
 
-function buildSheetBody(entry){
-  // Form-encoded — Content-Type "simples" do CORS: SEM preflight, funciona em todos os celulares
-  var params=new URLSearchParams();
-  params.append("data[Data/Hora]",new Date(entry.ts).toLocaleString("pt-BR"));
-  params.append("data[Data]",entry.date);
-  params.append("data[BDR]",entry.bdr);
-  params.append("data[Número Lead]",entry.numero);
-  params.append("data[Nome Lead]",entry.nomeL||"");
-  params.append("data[Timestamp]",String(entry.ts));
-  params.append("data[Hora Servidor]",new Date().toLocaleTimeString("pt-BR"));
-  return params.toString();
+function buildSheetPayload(entry){
+  return {data:{
+    "Data/Hora":new Date(entry.ts).toLocaleString("pt-BR"),
+    "Data":entry.date,
+    "BDR":entry.bdr,
+    "Número Lead":entry.numero,
+    "Nome Lead":entry.nomeL||"",
+    "Timestamp":String(entry.ts),
+    "Hora Servidor":new Date().toLocaleTimeString("pt-BR")
+  }};
 }
 
 function enviarParaSheet(entry,onResult){
-  var body=buildSheetBody(entry);
-  // fetch com keepalive: sobrevive à navegação E retorna status real
+  // Content-Type "text/plain" é CORS simples — não dispara preflight OPTIONS,
+  // funciona em todos os celulares, e o Apps Script lê o JSON via e.postData.contents.
+  var body=JSON.stringify(entry?buildSheetPayload(entry).data:{});
+  if(!APPS_SCRIPT_URL||APPS_SCRIPT_URL.indexOf("COLE")===0){
+    if(onResult)onResult(false,"URL do Apps Script não configurada");
+    return;
+  }
   if(window.fetch){
     try{
-      fetch(SHEETDB_URL,{
+      fetch(APPS_SCRIPT_URL,{
         method:"POST",
-        headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
+        headers:{"Content-Type":"text/plain;charset=utf-8"},
         body:body,
         keepalive:true,
-        mode:"cors"
+        redirect:"follow"
       }).then(function(r){
-        if(r.ok){removePending(entry);if(onResult)onResult(true)}
-        else{if(onResult)onResult(false)}
-      }).catch(function(){
-        // fetch falhou — tenta sendBeacon como último recurso (fire-and-forget)
-        var ok=false;
+        return r.text().then(function(t){
+          var ok=false,parsed=null;
+          try{parsed=JSON.parse(t);ok=!!(parsed&&parsed.ok);}catch(e){}
+          if(ok){
+            removePending(entry);
+            if(onResult)onResult(true,parsed.duplicate?"já existia":"salvo");
+          } else {
+            if(onResult)onResult(false,"HTTP "+r.status+" — "+(t||"").substring(0,180));
+          }
+        });
+      }).catch(function(err){
+        // fallback: sendBeacon (fire-and-forget) caso fetch falhe por rede
         if(navigator.sendBeacon){
           try{
-            var blob=new Blob([body],{type:"application/x-www-form-urlencoded;charset=UTF-8"});
-            ok=navigator.sendBeacon(SHEETDB_URL,blob);
-          }catch(e){}
+            var blob=new Blob([body],{type:"text/plain;charset=utf-8"});
+            var ok=navigator.sendBeacon(APPS_SCRIPT_URL,blob);
+            if(ok){if(onResult)onResult(true,"beacon enviado")}
+            else{if(onResult)onResult(false,"falha rede + beacon")}
+          }catch(e){if(onResult)onResult(false,"erro: "+(err&&err.message?err.message:err))}
+        } else {
+          if(onResult)onResult(false,"falha rede: "+(err&&err.message?err.message:err));
         }
-        if(ok)removePending(entry);
-        if(onResult)onResult(ok);
       });
       return;
-    }catch(e){}
+    }catch(e){
+      if(onResult)onResult(false,"exceção: "+e.message);
+    }
   }
-  // Sem fetch: sendBeacon direto
-  if(navigator.sendBeacon){
-    try{
-      var blob=new Blob([body],{type:"application/x-www-form-urlencoded;charset=UTF-8"});
-      var ok=navigator.sendBeacon(SHEETDB_URL,blob);
-      if(ok)removePending(entry);
-      if(onResult)onResult(ok);
-      return;
-    }catch(e){}
-  }
-  if(onResult)onResult(false);
+  if(onResult)onResult(false,"fetch indisponível");
+}
+
+function flushPending(onDone){
+  var p=getPending();
+  if(p.length===0){if(onDone)onDone();return;}
+  var done=0;
+  p.forEach(function(entry){
+    enviarParaSheet(entry,function(){
+      done++;if(done===p.length&&onDone)onDone();
+    });
+  });
 }
 
 function flushPending(){
@@ -378,10 +395,10 @@ document.getElementById("btn-registrar").addEventListener("click",function(){
   var statusEl=document.getElementById("send-status");
   if(statusEl){statusEl.textContent="⏳ Salvando na planilha…";statusEl.style.color="#8888aa"}
   showScreen("s-sucesso");
-  enviarParaSheet(entry,function(ok){
+  enviarParaSheet(entry,function(ok,msg){
     if(statusEl){
-      if(ok){statusEl.textContent="✓ Salvo na planilha";statusEl.style.color="#25d366"}
-      else{statusEl.textContent="⚠ Salvo localmente — reenvia ao voltar";statusEl.style.color="#f5c842"}
+      if(ok){statusEl.textContent="✓ Salvo na planilha ("+msg+")";statusEl.style.color="#25d366"}
+      else{statusEl.textContent="⚠ Salvo localmente — reenvia ao voltar | "+msg;statusEl.style.color="#f5c842"}
     }
   });
   // Abre WhatsApp em nova aba clicando o anchor (mesma stack do clique do usuário, não é popup)
@@ -394,13 +411,14 @@ document.getElementById("btn-nova").addEventListener("click",function(){openRegi
 document.getElementById("btn-painel").addEventListener("click",function(){renderHoje();showScreen("s-main")});
 
 function sincronizar(cb){
+  if(!APPS_SCRIPT_URL||APPS_SCRIPT_URL.indexOf("https://script.google.com/macros/s/AKfycbzxfDiMP6G19pBJfCjZPkAef2w7DWYLkWY_gsepXmSWCLXpCcZNDg5CJETSryVYxAKd/exec")===0){if(cb)cb();return;}
   var xhr=new XMLHttpRequest();
-  xhr.open("GET",SHEETDB_URL+"?cb="+Date.now(),true); // cache-buster
+  xhr.open("GET",APPS_SCRIPT_URL+"?cb="+Date.now(),true); // cache-buster
   xhr.onreadystatechange=function(){
     if(xhr.readyState===4&&xhr.status===200){
       try{
         var rows=JSON.parse(xhr.responseText);
-        if(rows&&rows.length>0){
+        if(rows&&rows.length>0&&!rows.error){
           var local=getLogs(),seen={};
           // Indexa o que já está localmente por (ts,bdr,numero) E também por (bdr,numero) caso ts esteja zerado
           local.forEach(function(l){
@@ -442,13 +460,13 @@ function refreshUI(){if(currentTab==="hoje")renderHoje();else renderMes();}
 flushPending();
 sincronizar(function(){renderHoje()});
 
-// Sync a cada 10s no painel principal
+// Sync a cada 15s no painel principal, SÓ quando a aba está visível (economiza cota do Apps Script)
 setInterval(function(){
-  if(document.getElementById("s-main").classList.contains("active")){
+  if(!document.hidden && document.getElementById("s-main").classList.contains("active")){
     flushPending();
     sincronizar(refreshUI);
   }
-},10000);
+},15000);
 
 // Quando o usuário volta do WhatsApp (visibilidade) — reenvia pendências E sincroniza
 document.addEventListener("visibilitychange",function(){
