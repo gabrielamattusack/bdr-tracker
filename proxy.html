@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body>
+<script>
+var url = "https://script.google.com/macros/s/AKfycbxY21zjJIDr906EhRMb4bKEHmMc_A-Wo-YLsVemX3E8DUaq7-3DlWY60X9rDChrZs9F/exec";
+var params = window.location.search;
+var action = new URLSearchParams(params).get("action");
+var callback = new URLSearchParams(params).get("callback") || "cb";
+
+window.addEventListener("message", function(e){
+  if(e.data && e.data.type === "result"){
+    window.parent.postMessage(e.data, "*");
+  }
+});
+
+function cb(data){
+  window.parent.postMessage({type:"result", data:data}, "*");
+}
+function _jsonpCallback(data){ cb(data); }
+
+var s = document.createElement("script");
+s.src = url + params + "&t=" + Date.now();
+document.head.appendChild(s);
+</script>
+</body>
+</html>
