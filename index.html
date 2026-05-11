@@ -411,7 +411,7 @@ document.getElementById("btn-nova").addEventListener("click",function(){openRegi
 document.getElementById("btn-painel").addEventListener("click",function(){renderHoje();showScreen("s-main")});
 
 function sincronizar(cb){
-  if(!APPS_SCRIPT_URL||APPS_SCRIPT_URL.indexOf("https://script.google.com/macros/s/AKfycbzxfDiMP6G19pBJfCjZPkAef2w7DWYLkWY_gsepXmSWCLXpCcZNDg5CJETSryVYxAKd/exec")===0){if(cb)cb();return;}
+  if(!APPS_SCRIPT_URL||APPS_SCRIPT_URL.indexOf("COLE")===0){if(cb)cb();return;}
   var xhr=new XMLHttpRequest();
   xhr.open("GET",APPS_SCRIPT_URL+"?cb="+Date.now(),true); // cache-buster
   xhr.onreadystatechange=function(){
@@ -426,20 +426,20 @@ function sincronizar(cb){
           });
           rows.forEach(function(r){
             if(!r["BDR"])return;
-            // Prioridade: coluna Timestamp (raw ms) → parse pt-BR de Data/Hora → 0
+            // Prioridade: coluna Timestamp (raw ms) → parse pt-BR de Data/Hora → ISO de Data/Hora → 0
             var ts=parseInt(r["Timestamp"],10);
             if(!ts||isNaN(ts)){ts=parseBRDate(r["Data/Hora"]);}
+            if(!ts&&r["Data/Hora"]){var iso=new Date(r["Data/Hora"]).getTime();if(!isNaN(iso))ts=iso;}
             if(!ts){ts=0;}
-            var numero=r["Número Lead"]||r["Numero Lead"]||"";
-            var key=dedupeKey(ts,r["BDR"],numero);
+            // Normaliza TODOS os campos pra string — Google Sheets pode devolver Number/Date/etc
+            var bdr=String(r["BDR"]||"").trim();
+            var numero=String(r["Número Lead"]||r["Numero Lead"]||"").replace(/\D/g,"");
+            var nomeL=String(r["Nome Lead"]||"");
+            // CRÍTICO: deriva a data sempre do ts, NUNCA do r["Data"] (que pode vir como Date object/ISO string)
+            var dateStr=ts?new Date(ts).toLocaleDateString("pt-BR"):"";
+            var key=dedupeKey(ts,bdr,numero);
             if(!seen[key]){
-              local.push({
-                ts:ts,
-                date:r["Data"]||(ts?new Date(ts).toLocaleDateString("pt-BR"):""),
-                bdr:r["BDR"],
-                numero:numero,
-                nomeL:r["Nome Lead"]||""
-              });
+              local.push({ts:ts,date:dateStr,bdr:bdr,numero:numero,nomeL:nomeL});
               seen[key]=true;
             }
           });
@@ -456,9 +456,28 @@ function sincronizar(cb){
 
 function refreshUI(){if(currentTab==="hoje")renderHoje();else renderMes();}
 
-// Ao carregar: tenta reenviar pendências e sincroniza
+// Migração: corrige entradas antigas (data como Date object, número como Number) E remove duplicatas
+function fixLegacyDates(){
+  var logs=getLogs(),changed=false,seen={},clean=[];
+  logs.forEach(function(l){
+    if(l.ts && (typeof l.date!=="string" || !/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(l.date))){
+      l.date=new Date(l.ts).toLocaleDateString("pt-BR");
+      changed=true;
+    }
+    if(typeof l.numero!=="string"){l.numero=String(l.numero||"").replace(/\D/g,"");changed=true;}
+    if(typeof l.bdr!=="string"){l.bdr=String(l.bdr||"").trim();changed=true;}
+    var k=dedupeKey(l.ts,l.bdr,l.numero);
+    if(seen[k]){changed=true;return;} // pula duplicata
+    seen[k]=true;clean.push(l);
+  });
+  if(changed)saveLogs(clean);
+}
+
+// Ao carregar: corrige dados legados, renderiza IMEDIATAMENTE do localStorage, sincroniza em background
+fixLegacyDates();
+renderHoje();
 flushPending();
-sincronizar(function(){renderHoje()});
+sincronizar(refreshUI);
 
 // Sync a cada 15s no painel principal, SÓ quando a aba está visível (economiza cota do Apps Script)
 setInterval(function(){
