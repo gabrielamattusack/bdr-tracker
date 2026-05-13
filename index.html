@@ -470,28 +470,27 @@ document.getElementById("range-custom").addEventListener("input",function(){
   if(v&&v>0){setRange(v,null);}
 });
 
-function openRegistro(bdr){selectedBDR=bdr;document.getElementById("badge-hoje").textContent=countTodayFor(bdr)+" hoje";document.getElementById("chip-av").textContent=initials(bdr);document.getElementById("chip-name").textContent=bdr;document.getElementById("inp-num").value="";document.getElementById("inp-nome").value="";document.getElementById("inp-num").classList.remove("err");document.getElementById("err-num").classList.remove("show");showScreen("s-registro")}
+function openRegistro(bdr){selectedBDR=bdr;document.getElementById("badge-hoje").textContent=countTodayFor(bdr)+" hoje";document.getElementById("chip-av").textContent=initials(bdr);document.getElementById("chip-name").textContent=bdr;document.getElementById("inp-num").value="";document.getElementById("inp-nome").value="";document.getElementById("inp-num").classList.remove("err");document.getElementById("err-num").classList.remove("show");showScreen("s-registro");setTimeout(function(){document.getElementById("inp-num").focus()},80)}
 document.getElementById("btn-back").addEventListener("click",function(){renderHoje();showScreen("s-main")});
 
-document.getElementById("btn-registrar").addEventListener("click",function(){
+function registrarConversa(){
   var rawNum=document.getElementById("inp-num").value.replace(/\D/g,"");
   if(rawNum.length<10||rawNum.length>13){document.getElementById("inp-num").classList.add("err");document.getElementById("err-num").classList.add("show");document.getElementById("inp-num").focus();return}
   document.getElementById("inp-num").classList.remove("err");document.getElementById("err-num").classList.remove("show");
   var nomeL=document.getElementById("inp-nome").value.trim();
+  lastWaUrl="https://wa.me/55"+rawNum;
+  // 1) ABRE O WHATSAPP IMEDIATAMENTE — dentro da stack do clique, antes de qualquer await.
+  // É a única forma de garantir abertura instantânea sem bloqueio de popup.
+  window.open(lastWaUrl,"_blank","noopener");
+  // 2) Em paralelo: persiste local + envia ao servidor (não bloqueia o usuário)
   var ts=Date.now();
   var entry={bdr:selectedBDR,numero:rawNum,nomeL:nomeL,ts:ts,date:today()};
-  addLog(entry);
-  // Marca como pendente ANTES de tentar enviar — se falhar, será reenviado depois
-  addPending(entry);
-  lastWaUrl="https://wa.me/55"+rawNum;
+  addLog(entry);addPending(entry);
+  // 3) Atualiza tela de sucesso (mostrada caso o BDR volte do WhatsApp)
   document.getElementById("suc-bdr").textContent=selectedBDR;
   document.getElementById("suc-num").textContent=rawNum+(nomeL?" · "+nomeL:"");
-  // Link do WhatsApp abre em NOVA aba/app — mantém a página atual viva para o fetch terminar
   var btnWa=document.getElementById("btn-abrir-wa");
-  btnWa.href=lastWaUrl;
-  btnWa.setAttribute("target","_blank");
-  btnWa.setAttribute("rel","noopener");
-  // Indicador de status
+  btnWa.href=lastWaUrl;btnWa.setAttribute("target","_blank");btnWa.setAttribute("rel","noopener");
   var statusEl=document.getElementById("send-status");
   if(statusEl){statusEl.textContent="⏳ Salvando na planilha…";statusEl.style.color="#8888aa"}
   showScreen("s-sucesso");
@@ -501,11 +500,12 @@ document.getElementById("btn-registrar").addEventListener("click",function(){
       else{statusEl.textContent="⚠ Salvo localmente — reenvia ao voltar | "+msg;statusEl.style.color="#f5c842"}
     }
   });
-  // Abre WhatsApp em nova aba clicando o anchor (mesma stack do clique do usuário, não é popup)
-  setTimeout(function(){
-    try{btnWa.click()}catch(e){window.open(lastWaUrl,"_blank")}
-  },350);
-});
+}
+document.getElementById("btn-registrar").addEventListener("click",registrarConversa);
+// Enter em qualquer campo do form dispara o registro
+function _onEnterRegistrar(e){if(e.key==="Enter"){e.preventDefault();registrarConversa();}}
+document.getElementById("inp-num").addEventListener("keydown",_onEnterRegistrar);
+document.getElementById("inp-nome").addEventListener("keydown",_onEnterRegistrar);
 
 document.getElementById("btn-nova").addEventListener("click",function(){openRegistro(selectedBDR)});
 document.getElementById("btn-painel").addEventListener("click",function(){renderHoje();showScreen("s-main")});
